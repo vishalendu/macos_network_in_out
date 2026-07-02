@@ -17,14 +17,14 @@ A tiny macOS menu bar app that shows total network traffic when opened:
   - `↓ <total downloaded>`
   - `↑ <total uploaded>`
   - `Quit`
-- Totals are cumulative macOS network interface byte counters since boot/interface start, not since app launch.
+- Totals are cumulative 64-bit macOS network interface byte counters since boot/interface start, not since app launch.
 - Loopback traffic is ignored.
 - Values refresh when the menu opens, then every 5 seconds while it stays open.
 
 ## Implementation
 
 - Native Swift + AppKit.
-- Read byte counters with `getifaddrs`.
+- Read 64-bit byte counters from `/usr/sbin/netstat -ibn`.
 - Build with `swiftc`; no package manager dependency.
 - Bundle as `build/Network In Out.app`.
 

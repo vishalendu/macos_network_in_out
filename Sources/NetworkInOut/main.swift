@@ -60,33 +60,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 }
 
 func readNetworkTotals() -> NetworkTotals {
-    var addresses: UnsafeMutablePointer<ifaddrs>?
-    guard getifaddrs(&addresses) == 0, let first = addresses else {
+    let process = Process()
+    let output = Pipe()
+    process.executableURL = URL(fileURLWithPath: "/usr/sbin/netstat")
+    process.arguments = ["-ibn"]
+    process.standardOutput = output
+    process.standardError = Pipe()
+
+    do {
+        try process.run()
+        process.waitUntilExit()
+    } catch {
         return NetworkTotals(incoming: 0, outgoing: 0)
     }
-    defer { freeifaddrs(addresses) }
+
+    guard
+        process.terminationStatus == 0,
+        let text = String(data: output.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8)
+    else {
+        return NetworkTotals(incoming: 0, outgoing: 0)
+    }
 
     var totals = NetworkTotals(incoming: 0, outgoing: 0)
-    var cursor: UnsafeMutablePointer<ifaddrs>? = first
 
-    while let interface = cursor {
-        defer { cursor = interface.pointee.ifa_next }
-
+    // ponytail: netstat matches Activity Monitor's 64-bit totals; replace with public native API if Apple exposes one.
+    for line in text.split(whereSeparator: \.isNewline) {
+        let parts = line.split(whereSeparator: \.isWhitespace)
         guard
-            (interface.pointee.ifa_flags & UInt32(IFF_UP)) != 0,
-            let address = interface.pointee.ifa_addr,
-            address.pointee.sa_family == UInt8(AF_LINK),
-            let data = interface.pointee.ifa_data
+            parts.count >= 10,
+            parts[2].hasPrefix("<Link#"),
+            parts[0] != "lo0",
+            !parts[0].hasSuffix("*"),
+            let incoming = UInt64(parts[parts.count - 5]),
+            let outgoing = UInt64(parts[parts.count - 2])
         else {
             continue
         }
 
-        let name = String(cString: interface.pointee.ifa_name)
-        guard name != "lo0" else { continue }
-
-        let stats = data.assumingMemoryBound(to: if_data.self).pointee
-        totals.incoming += UInt64(stats.ifi_ibytes)
-        totals.outgoing += UInt64(stats.ifi_obytes)
+        totals.incoming += incoming
+        totals.outgoing += outgoing
     }
 
     return totals
